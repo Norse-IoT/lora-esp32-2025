@@ -8,14 +8,28 @@
 // Uncomment this if you have Wireless Stick v3
 // #define HELTEC_WIRELESS_STICK
 
+
+#define FREQUENCY 905.2  // for US
+#define BANDWIDTH 250.0
+
 // creates 'radio', 'display' and 'button' instances
 #include <heltec_unofficial.h>  // Heltec_ESP32_LoRa_v3 by Rop Gonggrijp v0.9.2
 
-SX1262 controller(radio);
+volatile bool rxFlag = false;
+// Callback Can't do Serial or display things here, takes too much time for the interrupt
+void rx() {
+  rxFlag = true;
+}
 
 void setup() {
   heltec_setup();
   Serial.begin(9600);
+  RADIOLIB_OR_HALT(radio.begin());
+
+  both.printf("Frequency: %.2f MHz\n", FREQUENCY);
+  RADIOLIB_OR_HALT(radio.setFrequency(FREQUENCY));
+  both.printf("Bandwidth: %.1f kHz\n", BANDWIDTH);
+  RADIOLIB_OR_HALT(radio.setBandwidth(BANDWIDTH));
 
   display.println("Receiver Init");
   delay(2000);
@@ -30,44 +44,50 @@ void setup() {
     while (true) { delay(10); }  // Halt if initialization fails
   }
 
-  controller.begin();
-  controller.setFrequency(915.0);
+  // controller.setFrequency(915.0);
+  radio.setDio1Action(rx);
+  RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
 }
 
 void loop() {
   heltec_loop();
   Serial.println("[SX1262] Waiting for incoming transmission...");
 
-  String receivedData;
-  int state = controller.receive(receivedData);
+  if (rxFlag) {
+    display.println("Receiving...");
+    String receivedData;
+    radio.readData(receivedData);
 
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("Received Data: " + receivedData);
-    display.clear();
-    display.println("Received Data:");
-    display.println(receivedData);
-    display.display();
-
-    // Parse JSON data
-    DynamicJsonDocument doc(1024);
-    DeserializationError error = deserializeJson(doc, receivedData);
-    if (!error) {
-      float tempC = doc["Temp"]["DegreesC"];
-      float tempF = doc["Temp"]["DegreesF"];
-      float humidity = doc["Humidity"];
-
-      Serial.printf("Temp: %.1fC (%.1fF), Humidity: %.1f%%\n", tempC, tempF, humidity);
+    if (_radiolib_status == RADIOLIB_ERR_NONE) {
+      Serial.println("Received Data: " + receivedData);
       display.clear();
-      display.printf("Temp: %.1fC\nHum: %.1f%%\n", tempC, humidity);
+      display.println("Received Data:");
+      display.println(receivedData);
       display.display();
+
+      // Parse JSON data
+      DynamicJsonDocument doc(1024);
+      DeserializationError error = deserializeJson(doc, receivedData);
+      if (!error) {
+        float tempC = doc["Temp"]["DegreesC"];
+        float tempF = doc["Temp"]["DegreesF"];
+        float humidity = doc["Humidity"];
+
+        Serial.printf("Temp: %.1fC (%.1fF), Humidity: %.1f%%\n", tempC, tempF, humidity);
+        display.clear();
+        display.printf("Temp: %.1fC\nHum: %.1f%%\n", tempC, humidity);
+        display.display();
+      } else {
+        Serial.println("JSON Parse Failed!");
+      }
+    } else if (_radiolib_status == RADIOLIB_ERR_RX_TIMEOUT) {
+      Serial.println("Receive Timeout");
+    } else if (_radiolib_status == RADIOLIB_ERR_CRC_MISMATCH) {
+      Serial.println("CRC Error");
     } else {
-      Serial.println("JSON Parse Failed!");
+      Serial.printf("Receive Failed, Code: %i\n", _radiolib_status);
     }
-  } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
-    Serial.println("Receive Timeout");
-  } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
-    Serial.println("CRC Error");
-  } else {
-    Serial.printf("Receive Failed, Code: %i\n", state);
   }
+
+  RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
 }
