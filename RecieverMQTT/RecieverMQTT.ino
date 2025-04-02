@@ -38,19 +38,20 @@ void loop() {
   heltec_loop();
   Serial.println("[SX1262] Waiting for incoming transmission...");
 
-  String receivedData;
-  int state = controller.receive(receivedData);
+  uint8_t receivedData[1024];
+  int state = controller.receive(receivedData, sizeof(receivedData));
+  String receivedString = String(receivedData, sizeof(receivedData));
+  Serial.println("receivedString = ");
+  Serial.println(receivedString);
 
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("Received Data: " + receivedData);
-    display.clear();
     display.println("Received Data:");
-    display.println(receivedData);
+    display.println(receivedString);
     display.display();
 
     // Parse JSON data
     DynamicJsonDocument doc(1024);
-    DeserializationError error = deserializeJson(doc, receivedData);
+    DeserializationError error = deserializeJson(doc, receivedString);
     if (!error) {
       float tempC = doc["Temp"]["DegreesC"];
       float tempF = doc["Temp"]["DegreesF"];

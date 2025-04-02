@@ -54,7 +54,7 @@ void setup() {
 }
 
 float celsiusToFahrenheit(float celsius) {
-    return (celsius * 9.0 / 5.0) + 32.0;
+  return (celsius * 9.0 / 5.0) + 32.0;
 }
 
 void loop() {
@@ -77,6 +77,14 @@ void loop() {
   String data;
   serializeJson(payload, data);
 
-  controller.transmit(data, data.length());
+  int status = controller.transmit(data, data.length());
+  display.printf("TX Status: %d\n", status);
+  if (status == RADIOLIB_ERR_NONE) {
+    display.println("Success");
+  } else {
+    display.println("Fail");
+  }
+  display.display();
+
   delay(5000);  // Delay before next read
 }
