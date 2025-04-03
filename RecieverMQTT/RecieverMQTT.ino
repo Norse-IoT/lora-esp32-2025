@@ -1,14 +1,11 @@
 /**
- * Send and receive LoRa-modulation packets with a sequence number, showing RSSI
- * and SNR for received packets on the little display.
- *
- * Note that while this send and received using LoRa modulation, it does not do
- * LoRaWAN. For that, see the LoRaWAN_TTN example.
- *
- * This works on the stick, but the output on the screen gets cut off.
-*/
+ * This is a bridge from LoRA to MQTT
+ */
 
-
+#include <ArduinoJson.h>
+#include "arduino-secrets.h"  // https://www.andreagrandi.it/posts/how-to-safely-store-arduino-secrets/
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 // Turns the 'PRG' button into the power button, long press is off
 #define HELTEC_POWER_BUTTON  // must be before "#include <heltec_unofficial.h>"
@@ -40,12 +37,52 @@ uint64_t last_tx = 0;
 uint64_t tx_time;
 uint64_t minimum_pause;
 
+#define base_topic "norseiot/lora-demo"
+const char* temp_f_topic = base_topic "/temperature/f";
+const char* temp_c_topic = base_topic "/temperature/c";
+const char* humidity_topic = base_topic "/humidity";
+#undef base_topic
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+String getClientId() {
+  return "esp32-client-" + String(WiFi.macAddress());
+}
+
 void rx() {
   rxFlag = true;
 }
 
 void setup() {
   heltec_setup();
+
+  /******* MQTT Stuff **********/
+
+  // Connecting to a WiFi network
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    both.println("Connecting to WiFi..");
+  }
+  //connecting to a mqtt broker
+  both.println("Connected to the Wi-Fi network");
+
+  client.setServer(mqtt_broker, mqtt_port);
+  while (!client.connected()) {
+    String client_id = getClientId();
+    both.printf("The client %s is connecting to the public MQTT broker\n", client_id.c_str());
+    if (client.connect(client_id.c_str())) {
+      both.println("Public EMQX MQTT broker connected");
+    } else {
+      both.print("failed with state ");
+      both.print(client.state());
+      delay(2000);
+    }
+  }
+
+  /******* LoRA Stuff **********/
+
   both.println("Radio init");
   RADIOLIB_OR_HALT(radio.begin());
   // Set the callback function for received packets
@@ -65,16 +102,41 @@ void setup() {
 
 void loop() {
   heltec_loop();
+  client.loop();
 
   // If a packet was received, display it and the RSSI and SNR
   if (rxFlag) {
     rxFlag = false;
+    heltec_led(50);  // 50% bright
     radio.readData(rxdata);
     if (_radiolib_status == RADIOLIB_ERR_NONE) {
       both.printf("RX [%s]\n", rxdata.c_str());
       both.printf("  RSSI: %.2f dBm\n", radio.getRSSI());
       both.printf("  SNR: %.2f dB\n", radio.getSNR());
     }
+    processLoRaData(rxdata);
+    heltec_led(0);  // off
     RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+  }
+}
+
+/**
+ * Take the JSON data transmitted over LoRA
+ */
+void processLoRaData(String rawData) {
+  DynamicJsonDocument doc(1024);
+  DeserializationError error = deserializeJson(doc, rawData);
+  if (!error) {
+    String client_id = getClientId();
+    String message = client_id + " has been on for " + String(millis()) + " milliseconds!";
+
+    float tempC = doc["Temp"]["DegreesC"];
+    float tempF = doc["Temp"]["DegreesF"];
+    float humidity = doc["Humidity"];
+    client.publish(temp_f_topic, String(tempF).c_str());
+    client.publish(temp_c_topic, String(tempC).c_str());
+    client.publish(humidity_topic, String(humidity).c_str());
+
+    both.printf("Recieved Data: %.2fC %.2fF %.2f\n", tempC, tempF, humidity);
   }
 }

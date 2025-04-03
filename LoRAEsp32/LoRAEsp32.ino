@@ -21,7 +21,7 @@ DHTesp dht;
 // Pause between transmited packets in seconds.
 // Set to zero to only transmit a packet when pressing the user button
 // Will not exceed 1% duty cycle, even if you set a lower value.
-#define PAUSE 5
+#define PAUSE 3
 
 // Frequency in MHz. Keep the decimal point to designate float.
 // Check your own rules and regulations to see what is legal where you are.
@@ -100,7 +100,7 @@ void loop() {
       both.printf("fail (%i)\n", _radiolib_status);
     }
     // Maximum 1% duty cycle
-    minimum_pause = tx_time * 100;
+    minimum_pause = tx_time * 10;
     last_tx = millis();
     radio.setDio1Action(rx);
     RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
